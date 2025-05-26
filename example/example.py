@@ -2,7 +2,7 @@
 @ 2023, Copyright AVIS Engine
 - An Example Compatible with AVISEngine version 2.0.1 / 1.2.4 (ACL Branch) or higher
 ''' 
-import avisengine
+import src.engine.avisengine as avisengine
 import src.config as config
 import time
 import cv2
