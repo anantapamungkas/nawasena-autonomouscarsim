@@ -32,7 +32,7 @@ try:
         # car.setSpeed(20)
 
         # Set the Steering of the car -10 degree from center, results the car to steer to the left
-        # car.setSteering(-10)
+        car.setSteering(-10)
         
         # Set the angle between sensor rays to 45 degrees, Use this only if you want to set it from python client
         # Notice: Once it is set from the client, it cannot be changed using the GUI
