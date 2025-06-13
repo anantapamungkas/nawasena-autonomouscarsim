@@ -32,8 +32,8 @@ SIMULATOR_PORT = 25001
 # Setting untuk trackbar warna putih dalam format BGR
 # Format: ("nama", nilai_default, nilai_maksimum)
 WHITE_SETTING = [
-    ("b_low", 200, 255), ("g_low", 200, 255), ("r_low", 200, 255),
-    ("b_high", 255, 255), ("g_high", 255, 255), ("r_high", 255, 255)
+    ("b_low", 0, 255), ("g_low", 0, 255), ("r_low", 0, 255),
+    ("b_high", 65, 255), ("g_high", 106, 255), ("r_high", 255, 255)
 ]
 
 # Setting untuk trackbar warna kuning dalam format BGR

@@ -29,11 +29,14 @@ BEV_HEIGHT = 480
 
 # Titik-titik sumber untuk transformasi perspektif (dari frame asli)
 # Diperkirakan secara manual, perlu disesuaikan dengan lingkungan simulator Anda
-tl = (int(BEV_WIDTH * 0.33), int(BEV_HEIGHT * 0.5)) # Top-left
-bl = (int(0), int(BEV_HEIGHT * 0.85))             # Bottom-left
-tr = (int(BEV_WIDTH * 0.67), int(BEV_HEIGHT * 0.5)) # Top-right
-br = (int(BEV_WIDTH), int(BEV_HEIGHT * 0.85))     # Bottom-right
-
+tl = (int(BEV_WIDTH * 0.32), int(BEV_HEIGHT * 0.55)) # Top-left
+bl = (int(0), int(BEV_HEIGHT * 0.94))             # Bottom-left
+tr = (int(BEV_WIDTH * 0.68), int(BEV_HEIGHT * 0.55)) # Top-right
+br = (int(BEV_WIDTH), int(BEV_HEIGHT * 0.94))     # Bottom-right
+# tl = (int(BEV_WIDTH * 0.33), int(BEV_HEIGHT * 0.5))
+# bl = (int(0), int(BEV_HEIGHT * 0.85))
+# tr = (int(BEV_WIDTH * 0.67), int(BEV_HEIGHT * 0.5))
+# br = (int(BEV_WIDTH), int(BEV_HEIGHT * 0.85))
 SRC_POINTS = np.float32([tl, bl, tr, br])
 # Titik-titik tujuan (di frame BEV)
 DST_POINTS = np.float32([[0, 0], [0, BEV_HEIGHT], [BEV_WIDTH, 0], [BEV_WIDTH, BEV_HEIGHT]])
@@ -57,12 +60,12 @@ YM_PER_PIX = 30.0 / BEV_HEIGHT # Meter per piksel di sumbu Y (vertikal)
 
 # --- Parameter Kontrol Mobil ---
 # Kekuatan mesin (bukan kecepatan KMH langsung)
-BASE_ENGINE_POWER = 30 
-MAX_ENGINE_POWER = 50
-MIN_ENGINE_POWER = 10 # Hindari 0 agar mobil tidak berhenti total saat kehilangan jalur
-ANGLE_THRESHOLD = 5   # Sudut kemudi (derajat) di mana kecepatan mulai dikurangi
+BASE_ENGINE_POWER = 8 
+MAX_ENGINE_POWER = 25
+MIN_ENGINE_POWER = 5 # Hindari 0 agar mobil tidak berhenti total saat kehilangan jalur
+ANGLE_THRESHOLD = 20   # Sudut kemudi (derajat) di mana kecepatan mulai dikurangi
 SPEED_REDUCTION_FACTOR = 1.5 # Faktor seberapa agresif pengurangan kekuatan mesin
-STEERING_GAIN = 0.5   # Gain untuk mengonversi offset/kurva menjadi sudut kemudi
+STEERING_GAIN = -0.95   # Gain untuk mengonversi offset/kurva menjadi sudut kemudi
 MAX_STEERING_ANGLE = 25 # Batas sudut kemudi maksimal (misal: +/- 25 derajat)
 
 debug_mode = True # Aktifkan untuk menampilkan print dan banyak jendela debug
@@ -122,9 +125,9 @@ try:
         rightx_base = np.argmax(histogram[midpoint:]) + midpoint
 
         # --- 4. Pencarian Sliding Window ---
-        nwindows = 9
+        nwindows = 7
         margin = 100 # Lebar jendela pencarian di sekitar jalur
-        minpix = 50  # Jumlah piksel minimum yang diperlukan untuk memperbarui posisi jendela
+        minpix = 30  # Jumlah piksel minimum yang diperlukan untuk memperbarui posisi jendela
 
         window_height = np.int32(binary_warped_for_lane.shape[0] // nwindows)
 
@@ -296,7 +299,7 @@ try:
             
             # Batasi sudut kemudi agar tidak terlalu ekstrem
             steering_angle_command = np.clip(steering_angle_command, -MAX_STEERING_ANGLE, MAX_STEERING_ANGLE)
-            steering_angle_command *=-10
+            steering_angle_command *=10
             # --- Kontrol Kecepatan Adaptif ---
             # Mengurangi kekuatan mesin (setSpeed) saat mobil berbelok tajam
             abs_steering_angle = np.abs(steering_angle_command)
