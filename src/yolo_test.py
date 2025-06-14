@@ -1,67 +1,86 @@
 '''
 @ 2023, Copyright AVIS Engine
-- An Example Compatible with AVISEngine version 2.0.1 / 1.2.4 (ACL Branch) or higher
+- Compatible with AVIS Engine version 2.0.1 / 1.2.4 (ACL Branch) or higher
 '''
 
 from engine import avisengine
 import config 
 import time
 import cv2
-from ultralytics import YOLO  # pastikan sudah install: pip install ultralytics
+from ultralytics import YOLO
+import torch
+import sys
+
+# Periksa apakah CUDA tersedia
+if torch.cuda.is_available():
+    device = torch.device('cuda')
+    print("✅ CUDA tersedia. Menggunakan GPU.")
+else:
+    device = torch.device('cpu')
+    print("⚠️ CUDA tidak tersedia. Menggunakan CPU.")
 
 # Inisialisasi model YOLOv11m
 model = YOLO('firadetector.pt')  # Ganti dengan path ke modelmu
 
-# Membuat instance dari kelas Car
+# Inisialisasi objek mobil dari AVIS Engine
 car = avisengine.Car()
 
-# Koneksi ke simulator
-car.connect(config.SIMULATOR_IP, config.SIMULATOR_PORT)
+# Mencoba koneksi ke simulator
+try:
+    car.connect(config.SIMULATOR_IP, config.SIMULATOR_PORT)
+    print(f"✅ Terhubung ke simulator di {config.SIMULATOR_IP}:{config.SIMULATOR_PORT}")
+except Exception as e:
+    print(f"❌ Gagal terhubung ke simulator: {e}")
+    sys.exit(1)
 
-# Variabel penghitung
+# Variabel loop
 counter = 0
+debug_mode = True
 
-# Mode debug
-debug_mode = False
-
-# Delay 3 detik agar koneksi stabil ke simulator
+# Tunggu agar koneksi stabil
 time.sleep(3)
 
 try:
     while True:
-        # Hitung jumlah loop
         counter += 1
 
-        # Mengambil data dari simulator (harus dilakukan setiap frame)
-        car.getData()
+        # Ambil data dari simulator (wajib setiap frame)
+        try:
+            car.getData()
+        except Exception as e:
+            print(f"⚠️ Gagal mengambil data dari simulator: {e}")
+            break
 
-        # Setelah beberapa loop, ambil data kamera dan sensor
         if counter > 4:
-            sensors = car.getSensors()       # List: [left, middle, right]
-            image = car.getImage()           # Gambar OpenCV
-            carSpeed = car.getSpeed()        # Kecepatan mobil saat ini
+            sensors = car.getSensors()       # [left, middle, right]
+            image = car.getImage()           # Citra kamera (OpenCV format)
+            speed = car.getSpeed()           # Kecepatan mobil saat ini
 
             if debug_mode:
-                print(f"Speed : {carSpeed}") 
-                print(f'Left : {sensors[0]} | Middle : {sensors[1]} | Right : {sensors[2]}')
+                print(f"Speed : {speed}") 
+                print(f'Sensors => L: {sensors[0]} | M: {sensors[1]} | R: {sensors[2]}')
 
             if image is not None and image.any():
-                # Resize gambar ke 640x640 untuk YOLO dan display
+                # Resize ke 640x640 agar cocok dengan input YOLO
                 frame = cv2.resize(image, (640, 640))
 
-                # Deteksi objek menggunakan YOLOv11m
-                results = model(frame, verbose=False)[0]
+                # Deteksi objek menggunakan model (langsung ke GPU)
+                results = model(frame, device=device, verbose=False)[0]
 
-                # Gambar bounding box ke frame
+                # Plot bounding box ke frame
                 annotated_frame = results.plot()
 
-                # Tampilkan frame dengan deteksi
-                cv2.imshow('YOLOv11m Detection', annotated_frame)
+                # Tampilkan hasil deteksi
+                cv2.imshow("YOLOv11m Detection", annotated_frame)
 
             # Tekan 'q' untuk keluar dari loop
             if cv2.waitKey(10) == ord('q'):
                 break
 
 finally:
-    car.stop()
+    try:
+        car.stop()
+    except Exception as e:
+        print(f"⚠️ Gagal menghentikan mobil dengan benar: {e}")
     cv2.destroyAllWindows()
+    print("🛑 Program dihentikan dengan aman.")
