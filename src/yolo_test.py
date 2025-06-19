@@ -11,6 +11,9 @@ from ultralytics import YOLO
 import torch
 import sys
 
+# Threshold deteksi minimal (confidence)
+CONFIDENCE_THRESHOLD = 0.6
+
 # Periksa apakah CUDA tersedia
 if torch.cuda.is_available():
     device = torch.device('cuda')
@@ -20,7 +23,7 @@ else:
     print("⚠️ CUDA tidak tersedia. Menggunakan CPU.")
 
 # Inisialisasi model YOLOv11m
-model = YOLO('firadetector.pt')  # Ganti dengan path ke modelmu
+model = YOLO('firayolov11m.pt')  # Ganti dengan path ke modelmu
 
 # Inisialisasi objek mobil dari AVIS Engine
 car = avisengine.Car()
@@ -37,12 +40,17 @@ except Exception as e:
 counter = 0
 debug_mode = True
 
+# Untuk menghitung FPS
+prev_time = time.time()
+fps = 0.0
+
 # Tunggu agar koneksi stabil
 time.sleep(3)
 
 try:
     while True:
         counter += 1
+        current_time = time.time()
 
         # Ambil data dari simulator (wajib setiap frame)
         try:
@@ -64,17 +72,26 @@ try:
                 # Resize ke 640x640 agar cocok dengan input YOLO
                 frame = cv2.resize(image, (640, 640))
 
-                # Deteksi objek menggunakan model (langsung ke GPU)
-                results = model(frame, device=device, verbose=False)[0]
+                # Deteksi objek menggunakan YOLO + threshold
+                results = model(frame, conf=CONFIDENCE_THRESHOLD, device=device, verbose=False)[0]
 
                 # Plot bounding box ke frame
                 annotated_frame = results.plot()
 
+                # Hitung FPS
+                elapsed_time = current_time - prev_time
+                prev_time = current_time
+                fps = 1.0 / elapsed_time if elapsed_time > 0 else 0.0
+
+                # Tampilkan nilai FPS di pojok kiri atas
+                cv2.putText(annotated_frame, f"FPS: {fps:.2f}", (10, 30),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
+
                 # Tampilkan hasil deteksi
-                cv2.imshow("YOLOv11m Detection", annotated_frame)
+                cv2.imshow("YOLOv11 Detection", annotated_frame)
 
             # Tekan 'q' untuk keluar dari loop
-            if cv2.waitKey(10) == ord('q'):
+            if cv2.waitKey(1) == ord('q'):
                 break
 
 finally:
