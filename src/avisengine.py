@@ -216,5 +216,3 @@ class Car():
     def __del__(self):
         self.stop()
     
-        
-        

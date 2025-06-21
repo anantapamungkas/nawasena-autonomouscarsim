@@ -3,16 +3,17 @@
 - Compatible with AVIS Engine version 2.0.1 / 1.2.4 (ACL Branch) or higher
 '''
 
-from engine import avisengine
+import avisengine
 import config 
 import time
 import cv2
 from ultralytics import YOLO
 import torch
 import sys
+from steering import process_labels
 
 # Threshold deteksi minimal (confidence)
-CONFIDENCE_THRESHOLD = 0.6
+CONFIDENCE_THRESHOLD = 0.5
 
 # Periksa apakah CUDA tersedia
 if torch.cuda.is_available():
@@ -72,8 +73,13 @@ try:
                 # Resize ke 640x640 agar cocok dengan input YOLO
                 frame = cv2.resize(image, (640, 640))
 
-                # Deteksi objek menggunakan YOLO + threshold
                 results = model(frame, conf=CONFIDENCE_THRESHOLD, device=device, verbose=False)[0]
+
+                # Ambil label deteksi
+                detected_labels = [model.names[int(cls)] for cls in results.boxes.cls]
+
+                # Kirim label ke file steering untuk diproses
+                process_labels(detected_labels, car)
 
                 # Plot bounding box ke frame
                 annotated_frame = results.plot()

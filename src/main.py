@@ -1,102 +1,80 @@
-'''
-@ 2023, Copyright AVIS Engine
-- An Example Compatible with AVISEngine version 2.0.1 / 1.2.4 (ACL Branch) or higher
-'''
+# main.py
 
-
-import time
 import cv2
-import numpy as np
-import matplotlib.pyplot as plt
+import time
+import torch
+from ultralytics import YOLO
+import config
+from avisengine import Car
+from steering import process_labels
+from dummy_detector import DummyDetector, State as DummyState  # ⬅️ ganti nama untuk lebih jelas
 
-import config 
-from engine import avisengine
-from trackbar_utils import TrackbarManager
+# Threshold confidence YOLO
+CONFIDENCE_THRESHOLD = 0.5
 
+# Inisialisasi model YOLO
+model = YOLO('firayolov11m.pt')  # ganti path sesuai file modelmu
+# Deteksi apakah GPU tersedia
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+print(f"{'✅ CUDA tersedia' if torch.cuda.is_available() else '⚠️ CUDA tidak tersedia'}, menggunakan {device}.")
 
-white_trackbar = TrackbarManager("white_trackbar")
-white_trackbar.add_multiple(config.WHITE_SETTING)
+# Inisialisasi mobil dan koneksi
+car = Car()
+if not car.connect(config.SIMULATOR_IP, config.SIMULATOR_PORT):
+    exit("❌ Gagal terhubung ke simulator.")
 
-dirt_trackbar = TrackbarManager("dirt_trackbar")
-dirt_trackbar.add_multiple(config.DIRT_SETTING)
+# Inisialisasi Dummy Detector
+dummy_detector = DummyDetector()
 
-yellow_trackbar = TrackbarManager("yellow_trackbar")
-yellow_trackbar.add_multiple(config.YELLOW_SETTING)
+# Tunggu koneksi stabil
+time.sleep(2)
 
-car = avisengine.Car()
-car.connect(config.SIMULATOR_IP, config.SIMULATOR_PORT)
-
-time.sleep(3)
-
+# Loop utama
 try:
-    while(True):
+    prev_time = time.time()
+
+    while True:
+        # Ambil data dan gambar
         car.getData()
-        sensors = car.getSensors() 
-        
-        frame = car.getImage()
-        frame = cv2.resize(frame, (640, 640))
+        sensors = car.getSensors()
+        image = car.getImage()
 
+        # Deteksi dummy (menggunakan state machine)
+        dummy_state = dummy_detector.update(sensors, car)
 
-        white_hsv_value = white_trackbar.get_values_list()
+        # Jika sedang dalam state NON-NORMAL, skip deteksi YOLO
+        if dummy_state != DummyState.NORMAL:
+            if image is not None:
+                cv2.imshow("Dummy Navigation", image)
+                if cv2.waitKey(1) == ord('q'):
+                    break
+            continue  # skip ke frame berikutnya
 
-        lower = np.array([white_hsv_value[0], white_hsv_value[1], white_hsv_value[2]])
-        upper = np.array([white_hsv_value[3], white_hsv_value[4], white_hsv_value[5]])
+        # Jalankan YOLO jika tidak sedang menghindar dummy
+        if image is not None and image.any():
+            frame = cv2.resize(image, (640, 640))
+            results = model(frame, conf=CONFIDENCE_THRESHOLD, device=device, verbose=False)[0]
 
-        hsv_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+            # Ambil label
+            labels = [model.names[int(cls)] for cls in results.boxes.cls]
+            print("📦 Deteksi:", labels)
 
-        h, s, v = cv2.split(hsv_frame)
+            # Kirim label ke steering logic
+            process_labels(labels, car)
 
-        # Apply histogram equalization to V
-        v_eq = cv2.equalizeHist(v)
-        hsv_eq = cv2.merge([h, s, v_eq])
+            # Tampilkan hasil YOLO + FPS
+            annotated = results.plot()
+            fps = 1.0 / (time.time() - prev_time)
+            prev_time = time.time()
 
-        kernel = np.ones((3,3), np.uint8)
-        hsv_eq = cv2.morphologyEx(hsv_eq, cv2.MORPH_OPEN, kernel)  # Removes small noise
-        hsv_eq = cv2.morphologyEx(hsv_eq, cv2.MORPH_CLOSE, kernel) # Fills small holes
+            cv2.putText(annotated, f"FPS: {fps:.2f}", (10, 30),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
+            cv2.imshow("YOLOv11 Detection", annotated)
 
-
-
-        white_mask = cv2.inRange(hsv_eq, np.array(lower), np.array(upper))
-
-        # ## --- Gradient Threshold (Sobel) ---
-        # gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-
-        # # Compute gradients
-        # sobel_x = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=3)
-        # sobel_y = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=3)
-
-        # # Magnitude
-        # gradient_magnitude = np.sqrt(sobel_x**2 + sobel_y**2)
-        # gradient_magnitude = np.uint8(255 * gradient_magnitude / np.max(gradient_magnitude))
-
-        # # Threshold
-        # _, sobel_thresh = cv2.threshold(gradient_magnitude, 25, 255, cv2.THRESH_BINARY)
-
-        # l_h = cv2.getTrackbarPos("L - H", "Trackbars")
-        # l_s = cv2.getTrackbarPos("L - S", "Trackbars")
-        # l_v = cv2.getTrackbarPos("L - V", "Trackbars")
-        # u_h = cv2.getTrackbarPos("U - H", "Trackbars")
-        # u_s = cv2.getTrackbarPos("U - S", "Trackbars")
-        # u_v = cv2.getTrackbarPos("U - V", "Trackbars")
-        
-        # lower = np.array([l_h,l_s,l_v])
-        # upper = np.array([u_h,u_s,u_v])
-
-        # hsv_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-
-        # white_mask = cv2.inRange(hsv_frame, np.array(lower), np.array(upper))
-
-        # combined = cv2.bitwise_or(sobel_thresh, white_mask)
-
-        
-        if frame is not None and frame.any():
-            cv2.imshow('frames', frame)
-        #     cv2.imshow('Sobel Gradient', sobel_thresh)
-            cv2.imshow('white_mask', white_mask)
-        #     cv2.imshow('combine_mask', combined)
-
-        if cv2.waitKey(10) == ord('q'):
-            break
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                break
 
 finally:
     car.stop()
+    cv2.destroyAllWindows()
+    print("🛑 Program selesai dengan aman.")
