@@ -6,6 +6,7 @@
 import time
 import cv2
 import numpy as np
+import cv2.aruco as aruco # Import modul aruco dari OpenCV
 
 import config # Asumsikan 'config.py' berisi SIMULATOR_IP, SIMULATOR_PORT, dan WHITE_SETTING
 from engine import avisengine # Asumsikan 'engine.py' berisi kelas Car
@@ -46,7 +47,7 @@ XM_PER_PIX = 3.7 / BEV_WIDTH
 YM_PER_PIX = 30.0 / BEV_HEIGHT
 
 # --- Parameter Kontrol Mobil ---
-BASE_ENGINE_POWER = 8
+BASE_ENGINE_POWER = 5
 MAX_ENGINE_POWER = 20
 MIN_ENGINE_POWER = 5
 ANGLE_THRESHOLD = 15
@@ -55,8 +56,7 @@ STEERING_GAIN = -0.9
 MAX_STEERING_ANGLE = 25
 
 # --- Parameter Sensor ---
-OBSTACLE_DISTANCE_THRESHOLD = 700 # Jarak rintangan depan (cm)
-# SPEED_REVERSE = -10 # Kecepatan mundur, gunakan nilai negatif
+OBSTACLE_DISTANCE_THRESHOLD = 600 # Jarak rintangan depan (cm)
 SPEED_REVERSE = -BASE_ENGINE_POWER # Menggunakan BASE_ENGINE_POWER sebagai nilai kecepatan mundur
 
 # Parameter baru untuk kontrol kemudi berbasis sensor
@@ -64,10 +64,25 @@ SENSOR_STEERING_THRESHOLD = 500 # Jika sensor samping kurang dari ini, mulai kor
 SENSOR_STEERING_GAIN = 0.03   # Seberapa kuat koreksi kemudi berdasarkan sensor
 MIN_SENSOR_VALUE = 100        # Nilai sensor minimum yang masuk akal (hindari 0 / noise)
 
-# --- Variabel State Mundur (BARU) ---
+# --- Variabel State Mundur ---
 reverse_start_time = 0
 reverse_duration = 5 # Durasi mundur dalam detik
 is_reversing = False
+
+# --- Variabel State Belok Berdasarkan ArUco (BARU) ---
+aruco_turn_start_time = 0
+aruco_turn_duration = 10.0 # Durasi belok ArUco dalam detik (Diubah menjadi 2.0)
+is_aruco_turning = False
+aruco_turn_direction = 0 # -1 untuk kiri, 1 untuk kanan, 0 untuk tidak belok
+
+# --- Inisialisasi ArUco Detector ---
+# Menggunakan DICT_APRILTAG_36h11
+aruco_dict = aruco.getPredefinedDictionary(aruco.DICT_APRILTAG_36h11)
+parameters = aruco.DetectorParameters()
+# Optional: Sesuaikan parameter detektor untuk performa yang lebih baik
+# parameters.adaptiveThreshConstant = 10
+# parameters.adaptiveThreshWinSizeMax = 23
+# parameters.minMarkerDistance = 10
 
 debug_mode = True
 
@@ -88,27 +103,29 @@ try:
         frame = cv2.resize(frame, (640, 640))
         result_original = frame.copy()
 
-        # --- Logika Mundur (BARU) ---
-        if is_reversing:
-            # Jika sedang mundur, cek apakah durasi mundur sudah habis
-            if time.time() - reverse_start_time < reverse_duration:
-                # Masih dalam durasi mundur, tetap mundur
-                car.setSpeed(SPEED_REVERSE-10)
-                car.setSteering(0) # Luruskan kemudi saat mundur
-                cv2.putText(result_original, "MUNDUR!", (frame.shape[1] // 2 - 80, frame.shape[0] // 2),
-                            cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 3, cv2.LINE_AA)
-                cv2.putText(result_original, f'Waktu mundur tersisa: {reverse_duration - (time.time() - reverse_start_time):.1f}s',
-                            (frame.shape[1] // 2 - 180, frame.shape[0] // 2 + 40),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2, cv2.LINE_AA)
+        # --- Logika Belok Berdasarkan ArUco (Prioritas Tertinggi) ---
+        if is_aruco_turning:
+            if time.time() - aruco_turn_start_time < aruco_turn_duration:
+                # Masih dalam durasi belok, pertahankan kecepatan dan arah belok
+                car.setSpeed(BASE_ENGINE_POWER) # Sesuaikan kecepatan saat belok
+                car.setSteering(aruco_turn_direction * 13) # Belok penuh sesuai arah
+                
+                direction_text = "KIRI" if aruco_turn_direction == -1 else "KANAN"
+                cv2.putText(result_original, f"APRILTAG BELOK {direction_text}!",
+                            (frame.shape[1] // 2 - 280, frame.shape[0] // 2),
+                            cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 3, cv2.LINE_AA)
+                cv2.putText(result_original, f'Waktu belok tersisa: {aruco_turn_duration - (time.time() - aruco_turn_start_time):.1f}s',
+                            (frame.shape[1] // 2 - 280, frame.shape[0] // 2 + 40),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2, cv2.LINE_AA)
             else:
-                # Durasi mundur habis, hentikan mundur dan kembali ke mode normal
-                is_reversing = False
-                car.setSpeed(0) # Berhenti sejenak setelah mundur
-                print("Selesai mundur, kembali ke mode normal.")
+                # Durasi belok habis, kembali ke mode normal
+                is_aruco_turning = False
+                aruco_turn_direction = 0
+                print("Selesai belok karena AprilTag, kembali ke mode normal.")
             
-            # Tampilkan informasi dasar saat mundur
+            # Tampilkan informasi dasar saat belok
             cv2.putText(result_original, f'Sensors: L:{sensors[0]} M:{sensors[1]} R:{sensors[2]}',
-                        (30, 230), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 165, 0), 2, cv2.LINE_AA)
+                                (30, 230), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 165, 0), 2, cv2.LINE_AA)
             cv2.putText(result_original, f'Car Speed: {current_car_speed_kmh:.2f} KMH', (30, 190), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2, cv2.LINE_AA)
             
             cv2.imshow('Lanes on Original Frame', result_original)
@@ -118,21 +135,112 @@ try:
                 break
             continue # Lanjutkan ke iterasi berikutnya
 
-        # --- Sensor-based Obstacle Detection (Memicu Mundur jika tidak sedang mundur) ---
-        if sensors[1] < OBSTACLE_DISTANCE_THRESHOLD:
-            if not is_reversing: # Pastikan tidak memicu mundur berulang kali jika sudah mundur
-                print(f"Rintangan terdeteksi di depan! Pembacaan sensor: {sensors[1]}. Memulai mundur.")
-                is_reversing = True
-                reverse_start_time = time.time()
-                # Set kecepatan mundur dan kemudi lurus. Ini akan ditangani di blok is_reversing di iterasi berikutnya.
-                car.setSpeed(SPEED_REVERSE) 
+        # --- Logika Deteksi AprilTag (Jika tidak sedang dalam mode belok) ---
+        gray_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        corners, ids, rejectedImgPoints = aruco.detectMarkers(gray_frame, aruco_dict, parameters=parameters)
+
+        if ids is not None:
+            for i in range(len(ids)):
+                current_corners = corners[i][0] # Ambil pojok untuk marker saat ini
+
+                # --- Mencari pojok Top-Left, Top-Right, Bottom-Left secara robust ---
+                sorted_by_y = current_corners[current_corners[:, 1].argsort()]
+                top_two_corners = sorted_by_y[:2]
+                bottom_two_corners = sorted_by_y[2:]
+
+                if top_two_corners[0, 0] < top_two_corners[1, 0]:
+                    top_left = top_two_corners[0]
+                    top_right = top_two_corners[1]
+                else:
+                    top_left = top_two_corners[1]
+                    top_right = top_two_corners[0]
+
+                if bottom_two_corners[0, 0] < bottom_two_corners[1, 0]:
+                    bottom_left = bottom_two_corners[0]
+                else:
+                    bottom_left = bottom_two_corners[1]
+
+                top_left_x = top_left[0]
+                top_left_y = top_left[1]
+                top_right_x = top_right[0]
+                bottom_left_y = bottom_left[1]
+
+                # Kondisi 1: Selisih sumbu X pojok kiri atas dan kanan atas lebih besar dari 50
+                condition_x = abs(top_right_x - top_left_x) > 30
+
+                # Kondisi 2: Selisih sumbu Y pojok kiri atas dan pojok kiri bawah lebih besar dari 50
+                condition_y = abs(bottom_left_y - top_left_y) > 30
+
+                # Jika kedua kondisi terpenuhi DAN mobil tidak sedang dalam mode belok AprilTag
+                if condition_x and condition_y:
+                    if not is_aruco_turning: # Hanya picu sekali
+                        print(f"AprilTag Marker ID {ids[i][0]} Terdeteksi dengan Kondisi Ganda Terpenuhi!")
+                        print(f"Selisih X (Top-Left ke Top-Right): {abs(top_right_x - top_left_x):.2f}")
+                        print(f"Selisih Y (Top-Left ke Bottom-Left): {abs(bottom_left_y - top_left_y):.2f}")
+                        
+                        is_aruco_turning = True
+                        aruco_turn_start_time = time.time()
+                        
+                        # Tentukan arah belok berdasarkan ID
+                        if ids[i][0] == 3: # Jika ID marker adalah 3
+                            aruco_turn_direction = -1 # Belok kiri
+                            aruco_turn_duration = 7.5 # Durasi khusus 2 detik untuk ID 3
+                            print(f"Memicu belok KIRI karena AprilTag ID {ids[i][0]} selama 2 detik.")
+                        # Tambahkan kondisi untuk ID lain jika diperlukan
+                        # elif ids[i][0] == 4:
+                        #     aruco_turn_direction = 1 # Belok kanan
+                        #     aruco_turn_duration = 2.5 # Durasi default (atau custom)
+                        #     print(f"Memicu belok KANAN karena AprilTag ID {ids[i][0]}.")
+                        else: # Default jika ID lain atau tidak dikenali, bisa diatur untuk berhenti atau lurus
+                            aruco_turn_direction = 0 # Tidak belok, mungkin berhenti saja
+                            car.setSpeed(0)
+                            print(f"AprilTag ID {ids[i][0]} terdeteksi, tidak ada aksi belok spesifik. Mobil berhenti.")
+                        
+                        # Langsung aplikasikan perintah belok pertama kali
+                        car.setSpeed(BASE_ENGINE_POWER) 
+                        car.setSteering(aruco_turn_direction * MAX_STEERING_ANGLE)
+
+                    # Visualisasi Marker di frame original
+                    aruco.drawDetectedMarkers(result_original, corners) # Gambar semua marker yang terdeteksi
+                    
+                    cv2.putText(result_original, f"Marker ID: {ids[i][0]}", (int(top_left_x), int(top_left_y) - 10),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2, cv2.LINE_AA)
+                    cv2.putText(result_original, "APRILTAG KONDISI GANDA TERPENUHI!",
+                                (frame.shape[1] // 2 - 380, frame.shape[0] // 2 + 100),
+                                cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 3, cv2.LINE_AA)
+                    
+                    # Tampilkan informasi dasar juga
+                    cv2.putText(result_original, f'Sensors: L:{sensors[0]} M:{sensors[1]} R:{sensors[2]}',
+                                        (30, 230), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 165, 0), 2, cv2.LINE_AA)
+                    cv2.putText(result_original, f'Car Speed: {current_car_speed_kmh:.2f} KMH', (30, 190), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2, cv2.LINE_AA)
+                    
+                    cv2.imshow('Lanes on Original Frame', result_original)
+                    cv2.imshow('Lanes on Bird Eye View', cv2.warpPerspective(frame, M_perspective, (BEV_WIDTH, BEV_HEIGHT), flags=cv2.INTER_LINEAR))
+                    
+                    if cv2.waitKey(10) == ord('q'):
+                        break # Keluar dari loop utama
+                    
+                    # Penting: Langsung ke iterasi berikutnya, karena sudah ditangani oleh is_aruco_turning
+                    continue 
+
+        # --- Logika Mundur (Jika tidak sedang dalam mode belok AprilTag) ---
+        if is_reversing:
+            # Jika sedang mundur, cek apakah durasi mundur sudah habis
+            if time.time() - reverse_start_time < reverse_duration:
+                car.setSpeed(SPEED_REVERSE-10)
                 car.setSteering(0)
+                cv2.putText(result_original, "MUNDUR!", (frame.shape[1] // 2 - 80, frame.shape[0] // 2),
+                            cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 3, cv2.LINE_AA)
+                cv2.putText(result_original, f'Waktu mundur tersisa: {reverse_duration - (time.time() - reverse_start_time):.1f}s',
+                            (frame.shape[1] // 2 - 180, frame.shape[0] // 2 + 40),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2, cv2.LINE_AA)
+            else:
+                is_reversing = False
+                car.setSpeed(0)
+                print("Selesai mundur, kembali ke mode normal.")
             
-            cv2.putText(result_original, "RINTANGAN TERDETEKSI! Memulai Mundur...", (frame.shape[1] // 2 - 300, frame.shape[0] // 2),
-                        cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 3, cv2.LINE_AA)
-            # Tampilkan informasi dasar saat memicu mundur
             cv2.putText(result_original, f'Sensors: L:{sensors[0]} M:{sensors[1]} R:{sensors[2]}',
-                        (30, 230), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 165, 0), 2, cv2.LINE_AA)
+                                (30, 230), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 165, 0), 2, cv2.LINE_AA)
             cv2.putText(result_original, f'Car Speed: {current_car_speed_kmh:.2f} KMH', (30, 190), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2, cv2.LINE_AA)
             
             cv2.imshow('Lanes on Original Frame', result_original)
@@ -140,9 +248,31 @@ try:
             
             if cv2.waitKey(10) == ord('q'):
                 break
-            continue # Lanjutkan ke iterasi berikutnya (akan masuk ke blok is_reversing)
+            continue
 
-        # --- Jika tidak ada rintangan depan dan tidak sedang mundur, lanjutkan dengan deteksi jalur ---
+        # --- Sensor-based Obstacle Detection (Memicu Mundur jika tidak sedang mundur) ---
+        if sensors[1] < OBSTACLE_DISTANCE_THRESHOLD:
+            if not is_reversing:
+                print(f"Rintangan terdeteksi di depan! Pembacaan sensor: {sensors[1]}. Memulai mundur.")
+                is_reversing = True
+                reverse_start_time = time.time()
+                car.setSpeed(SPEED_REVERSE) 
+                car.setSteering(0)
+            
+            cv2.putText(result_original, "RINTANGAN TERDETEKSI! Memulai Mundur...", (frame.shape[1] // 2 - 300, frame.shape[0] // 2),
+                                cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 3, cv2.LINE_AA)
+            cv2.putText(result_original, f'Sensors: L:{sensors[0]} M:{sensors[1]} R:{sensors[2]}',
+                                (30, 230), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 165, 0), 2, cv2.LINE_AA)
+            cv2.putText(result_original, f'Car Speed: {current_car_speed_kmh:.2f} KMH', (30, 190), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2, cv2.LINE_AA)
+            
+            cv2.imshow('Lanes on Original Frame', result_original)
+            cv2.imshow('Lanes on Bird Eye View', cv2.warpPerspective(frame, M_perspective, (BEV_WIDTH, BEV_HEIGHT), flags=cv2.INTER_LINEAR))
+            
+            if cv2.waitKey(10) == ord('q'):
+                break
+            continue
+
+        # --- Jika tidak ada kondisi khusus aktif, lanjutkan dengan deteksi jalur ---
         roi_start_y = int(frame.shape[0] * 0.6)
         roi_end_y = frame.shape[0]
         roi_start_x = 0
@@ -269,7 +399,7 @@ try:
 
             car_center_x_m = (BEV_WIDTH / 2) * XM_PER_PIX
             lane_center_bottom_x_m = (left_fit_cr[0]*y_eval_m**2 + left_fit_cr[1]*y_eval_m + left_fit_cr[2] +
-                                      right_fit_cr[0]*y_eval_m**2 + right_fit_cr[1]*y_eval_m + right_fit_cr[2]) / 2
+                                        right_fit_cr[0]*y_eval_m**2 + right_fit_cr[1]*y_eval_m + right_fit_cr[2]) / 2
 
             lane_offset_m = car_center_x_m - lane_center_bottom_x_m
             
@@ -282,16 +412,14 @@ try:
             sensor_steering_correction = 0.0
             if sensors[0] < SENSOR_STEERING_THRESHOLD and sensors[0] > MIN_SENSOR_VALUE:
                 sensor_steering_correction += (SENSOR_STEERING_THRESHOLD - sensors[0]) * SENSOR_STEERING_GAIN
-                # print(f"Sensor kiri dekat ({sensors[0]}), koreksi kemudi kanan: {sensor_steering_correction:.2f}")
-
+            
             if sensors[2] < SENSOR_STEERING_THRESHOLD and sensors[2] > MIN_SENSOR_VALUE:
                 sensor_steering_correction -= (SENSOR_STEERING_THRESHOLD - sensors[2]) * SENSOR_STEERING_GAIN
-                # print(f"Sensor kanan dekat ({sensors[2]}), koreksi kemudi kiri: {sensor_steering_correction:.2f}")
 
             steering_angle_command += sensor_steering_correction
             
             steering_angle_command = np.clip(steering_angle_command, -MAX_STEERING_ANGLE, MAX_STEERING_ANGLE)
-            steering_angle_command *=10
+            steering_angle_command *=10 # Skala ke rentang kemudi simulator
             
             abs_steering_angle = np.abs(steering_angle_command)
             
@@ -321,7 +449,7 @@ try:
             cv2.putText(result_original, f'Engine Power: {current_engine_power:.2f}', (30, 150), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2, cv2.LINE_AA)
             cv2.putText(result_original, f'Car Speed: {current_car_speed_kmh:.2f} KMH', (30, 190), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2, cv2.LINE_AA)
             cv2.putText(result_original, f'Sensors: L:{sensors[0]} M:{sensors[1]} R:{sensors[2]}',
-                        (30, 230), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 165, 0), 2, cv2.LINE_AA)
+                                (30, 230), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 165, 0), 2, cv2.LINE_AA)
             
             cv2.imshow('Lanes on Original Frame', result_original)
             cv2.imshow('Lanes on Bird Eye View', result_bev)
@@ -330,7 +458,7 @@ try:
             car.setSteering(0)
             print("Tidak ada garis jalur yang terdeteksi. Bergerak perlahan.")
             cv2.putText(result_original, f'Sensors: L:{sensors[0]} M:{sensors[1]} R:{sensors[2]}',
-                        (30, 230), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 165, 0), 2, cv2.LINE_AA)
+                                (30, 230), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 165, 0), 2, cv2.LINE_AA)
             cv2.putText(result_original, f'Car Speed: {current_car_speed_kmh:.2f} KMH', (30, 190), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2, cv2.LINE_AA)
             cv2.imshow('Lanes on Original Frame', result_original)
             cv2.imshow('Lanes on Bird Eye View', out_img)
